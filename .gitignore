@@ -1,8 +1,6 @@
 *
+!.gitignore
 Thumbs.db
 .DS_Store
 /chart/*
 /chart_data/*
-/sample/*
-!.gitignore
-!.gitkeep
