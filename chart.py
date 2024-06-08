@@ -10,7 +10,7 @@ import dateutil
 
 import numpy as np
 import yfinance as yf
-from pandas_datareader import data as pdr
+import pandas as pd
 import mplfinance as mpf
 import matplotlib.pyplot as plt
 import japanize_matplotlib
@@ -29,6 +29,7 @@ tickers = {
     '^N225': '日経平均',
     '^DJI': 'ダウ',
     '^IXIC': 'NASDAQ',
+    '^NDX': 'NASDAQ100',
     '^GSPC': 'S&P500',
     'BRK-B': 'バークシャーハサウェイ'
 }
@@ -68,8 +69,7 @@ class chart:
 
     def main(self):
         # 取得期間の開始日付を指定
-        start = datetime(start_year, 1, 1).strftime('%Y-%m-%d')  # 1980年1月1日
-        # start = (datetime.now() - dateutil.relativedelta.relativedelta(years=1, months=2)).strftime('%Y-%m-%d')  # 1年くらい前から取得
+        start = datetime(start_year, 1, 1).strftime('%Y-%m-%d')
 
         # 取得期間の終了日付の翌日を指定
         end = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -84,66 +84,89 @@ class chart:
 
             print(ticker_name + 'のCSVを取得中...')
             ####################
-            # データ取得
+            # 株価データ取得
             ####################
+            # 既存のCSVファイルを読み取って最新の日付を取得
+            existing_csv_path = CHART_DATA_PATH + ticker_name + '_日足.csv'
+            existing_df = None
+            if os.path.exists(existing_csv_path):
+                existing_df = pd.read_csv(existing_csv_path, index_col='Date', parse_dates=True, header=0)
+                start = existing_df.index[-1].strftime('%Y-%m-%d')
+
             # yfinanceライブラリを用いて指定した条件でデータを取得
-            yf.pdr_override()
-            df = pdr.get_data_yahoo(ticker, start, end)
+            df = yf.Ticker(ticker).history(start=start, end=end, interval='1d')
 
             # データフレームの開始年を取得
             df_year = np.datetime64(df.index.values[0], 'Y').astype(int) + 1970
             print(str(df_year) + '年以降データを取得できました')
 
-            print(ticker_name + 'のテクニカル指標を算出中...')
+            # 既存CSVが存在する場合
+            if existing_df is not None:
+                # 既存CSVのデータフレームと取得したデータフレームを結合
+                df = existing_df.combine_first(df)
+                # 列順が変わってしまうため元の列順へ変更
+                df = df[existing_df.columns]
 
             #####################
             # テクニカル指標
             #####################
+            print(ticker_name + 'のテクニカル指標を算出中...')
+
+            # 全期間のテクニカルを計算すると時間かかるので差分＋過去4ヶ月分のデータを用いて
+            start_index = (datetime.strptime(start, '%Y-%m-%d') - dateutil.relativedelta.relativedelta(months=4)).strftime('%Y-%m-%d')
+            df_subset = df.loc[start_index:end].copy()
+
             # 移動平均線
-            df['SMA5'] = df['Close'].rolling(window=5, min_periods=0).mean()
-            df['SMA25'] = df['Close'].rolling(window=25, min_periods=0).mean()
-            df['SMA75'] = df['Close'].rolling(window=75, min_periods=0).mean()
+            df['SMA5'] = df_subset['Close'].rolling(window=5, min_periods=0).mean()
+            df['SMA25'] = df_subset['Close'].rolling(window=25, min_periods=0).mean()
+            df['SMA75'] = df_subset['Close'].rolling(window=75, min_periods=0).mean()
 
             # FTD(フォロースルーデイ)
             # df['RecentVolume'] = df['Volume'].rolling(window=10, min_periods=0).mean().shift(1).fillna(0)
             # df['RecentVolume'] = df['Volume'].rolling(window=5, min_periods=0).mean().shift(1).fillna(0)
-            df['RecentVolume'] = df['Volume'].shift(1).fillna(0)
-            df['VolumeMA'] = df['Volume'].rolling(window=50, min_periods=0).mean().fillna(0)
+            df_subset['RecentVolume'] = df_subset['Volume'].shift(1).fillna(0)
+            df['RecentVolume'] = df_subset['RecentVolume']
+            df_subset['VolumeMA'] = df_subset['Volume'].rolling(window=50, min_periods=0).mean().fillna(0)
+            df['VolumeMA'] = df_subset['VolumeMA']
             # 出来高の条件
             # condition_recent = df['Volume'] > df['RecentVolume']
             # condition_recent = df['Volume'] >= df['RecentVolume'] * 1.05
             # condition_recent = df['Volume'] >= df['RecentVolume'] * 1.10
-            condition_recent = df['Volume'] >= df['RecentVolume'] * 1.15
+            condition_recent = df_subset['Volume'] >= df_subset['RecentVolume'] * 1.15
             # condition_recent = df['Volume'] >= df['RecentVolume'] * 1.20
             # condition_vma = df['Volume'] > df['VolumeMA']
             # condition_vma = df['Volume'] >= df['VolumeMA'] * 1.05
-            condition_vma = df['Volume'] >= df['VolumeMA'] * 1.15
+            condition_vma = df_subset['Volume'] >= df_subset['VolumeMA'] * 1.15
             # condition_vma = df['Volume'] >= df['VolumeMA'] * 1.20
             # 上昇幅の条件
             # condition_increase = df['Close'] >= df['Close'].shift(1) * 1.0100
-            condition_increase = df['Close'] >= df['Close'].shift(1) * 1.0125
+            condition_increase = df_subset['Close'] >= df_subset['Close'].shift(1) * 1.0125
             # 底打ちの条件
-            condition_rebound = np.array([chart.check_rebound(df, i) for i in range(len(df))])
+            condition_rebound = np.array([chart.check_rebound(df_subset, i) for i in range(len(df_subset))])
 
             # FTD判定
             # df['FTD'] = np.where(condition_recent & condition_increase & condition_rebound & condition_vma, True, False)
             # df['FTD'] = np.where(condition_recent & condition_increase & condition_rebound, True, False)
             # df['FTD'] = np.where(condition_increase & condition_rebound & condition_vma, True, False)
-            df['FTD'] = np.where((condition_recent | condition_vma) & condition_increase & condition_rebound, True, False)
+            df_subset['FTD'] = np.where((condition_recent | condition_vma) & condition_increase & condition_rebound, True, False)
+            df['FTD'] = df_subset['FTD']
             # FTDの目印の出力位置
-            df['FTD_POS'] = np.where(df['FTD'], df['Low'] * 0.995, np.nan)
+            df_subset['FTD_POS'] = np.where(df_subset['FTD'], df_subset['Low'] * 0.995, np.nan)
+            df['FTD_POS'] = df_subset['FTD_POS']
 
             # 逆FTD判定
             # 下落幅の条件
-            condition_decrease = df['Close'] <= df['Close'].shift(1) * 0.9900
+            condition_decrease = df_subset['Close'] <= df_subset['Close'].shift(1) * 0.9900
             # 反落の条件
-            condition_pullback = np.array([chart.check_pullback(df, i) for i in range(len(df))])
+            condition_pullback = np.array([chart.check_pullback(df_subset, i) for i in range(len(df_subset))])
             # 逆FTD判定
             # df['R_FTD'] = np.where(condition_recent & condition_decrease & condition_pullback & condition_vma, True, False)
             # df['R_FTD'] = np.where(condition_recent & condition_decrease & condition_pullback, True, False)
             # df['R_FTD'] = np.where(condition_decrease & condition_pullback & condition_vma, True, False)
-            df['R_FTD'] = np.where((condition_recent | condition_vma) & condition_decrease & condition_pullback, True, False)
-            df['R_FTD_POS'] = np.where(df['R_FTD'], df['High'] * 1.005, np.nan)
+            df_subset['R_FTD'] = np.where((condition_recent | condition_vma) & condition_decrease & condition_pullback, True, False)
+            df['R_FTD'] = df_subset['R_FTD']
+            df_subset['R_FTD_POS'] = np.where(df_subset['R_FTD'], df_subset['High'] * 1.005, np.nan)
+            df['R_FTD_POS'] = df_subset['R_FTD_POS']
 
             ####################
             # CSV形式で保存
@@ -155,8 +178,7 @@ class chart:
             ####################
             # 1年ごとに画像出力する
             current_year = datetime.now().year
-            # for year in range(current_year, df_year - 1, -1):  # 過去分のチャートも出力
-            for year in range(current_year, 2023, -1):  # 今年のチャートだけ出力
+            for year in range(current_year, df_year - 1, -1):  # 更新分だけチャート出力
                 print(str(year) + 'のチャートを生成中...')
                 file_name = str(ticker_name) + '_' + str(year) + '_日足.png'
                 diff_year = current_year - year
@@ -172,8 +194,8 @@ class chart:
                         os.remove(OLD_CHART_PATH + file_name)
 
                 # 表示期間のスタートを指定
-                graphStart = (datetime(current_year + 1, 1, 1) - dateutil.relativedelta.relativedelta(years=diff_year + 1)).strftime('%Y-%m-%d')  # 1年前
-                graphEnd = (datetime(current_year + 1, 1, 1) - dateutil.relativedelta.relativedelta(years=diff_year)).strftime('%Y-%m-%d')  # 1年前
+                graphStart = (datetime(current_year + 1, 1, 1) - dateutil.relativedelta.relativedelta(years=diff_year + 1)).strftime('%Y-%m-%d')
+                graphEnd = (datetime(current_year + 1, 1, 1) - dateutil.relativedelta.relativedelta(years=diff_year)).strftime('%Y-%m-%d')
                 # graphStart = (datetime.now() - dateutil.relativedelta.relativedelta(months=6)).strftime('%Y-%m-%d')  # 半年前
 
                 # テクニカル指標の描画
