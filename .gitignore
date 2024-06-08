@@ -1,0 +1,5 @@
+/chart/*
+!/chart/dummy.txt
+/chart_data/*
+!/chart_data/dummy.txt
+/sample/*
