@@ -10,6 +10,7 @@ import dateutil
 
 import numpy as np
 import yfinance as yf
+from pandas_datareader import data as pdr
 import pandas as pd
 import mplfinance as mpf
 import matplotlib.pyplot as plt
@@ -31,7 +32,7 @@ tickers = {
     '^IXIC': 'NASDAQ',
     '^NDX': 'NASDAQ100',
     '^GSPC': 'S&P500',
-    'BRK-B': 'バークシャーハサウェイ'
+    'BRK-B': 'バークシャーハサウェイ',
 }
 
 # チャートデータ保存フォルダー
@@ -68,13 +69,13 @@ class chart:
         self.main()
 
     def main(self):
-        # 取得期間の開始日付を指定
-        start = datetime(start_year, 1, 1).strftime('%Y-%m-%d')
-
         # 取得期間の終了日付の翌日を指定
         end = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
 
         for ticker, ticker_name in tickers.items():
+            # 取得期間の開始日付を指定
+            start = datetime(start_year, 1, 1).strftime('%Y-%m-%d')
+
             OLD_CHART_PATH = CHART_PATH + str(ticker_name) + '/'
 
             ####################
@@ -92,9 +93,13 @@ class chart:
             if os.path.exists(existing_csv_path):
                 existing_df = pd.read_csv(existing_csv_path, index_col='Date', parse_dates=True, header=0)
                 start = existing_df.index[-1].strftime('%Y-%m-%d')
+                # 既存の最後の日付データは場中に取得した可能性があるため破棄
+                existing_df = existing_df.iloc[0:-1]
 
             # yfinanceライブラリを用いて指定した条件でデータを取得
-            df = yf.Ticker(ticker).history(start=start, end=end, interval='1d')
+            # df = yf.Ticker(ticker).history(start=start, end=end, interval='1d')  # インデックスがdatetime型になるためバグる
+            yf.pdr_override()
+            df = pdr.get_data_yahoo(ticker, start, end)
 
             # データフレームの開始年を取得
             df_year = np.datetime64(df.index.values[0], 'Y').astype(int) + 1970
@@ -112,22 +117,23 @@ class chart:
             #####################
             print(ticker_name + 'のテクニカル指標を算出中...')
 
-            # 全期間のテクニカルを計算すると時間かかるので差分＋過去4ヶ月分のデータを用いて
-            start_index = (datetime.strptime(start, '%Y-%m-%d') - dateutil.relativedelta.relativedelta(months=4)).strftime('%Y-%m-%d')
+            # 全期間のテクニカルを計算すると時間かかるので差分＋過去15ヶ月分のデータを用いる
+            start_index = (datetime.strptime(start, '%Y-%m-%d') - dateutil.relativedelta.relativedelta(months=15)).strftime('%Y-%m-%d')
             df_subset = df.loc[start_index:end].copy()
 
             # 移動平均線
-            df['SMA5'] = df_subset['Close'].rolling(window=5, min_periods=0).mean()
-            df['SMA25'] = df_subset['Close'].rolling(window=25, min_periods=0).mean()
-            df['SMA75'] = df_subset['Close'].rolling(window=75, min_periods=0).mean()
+            df.loc[df_subset.index, 'SMA5'] = df_subset['Close'].rolling(window=5, min_periods=0).mean()
+            df.loc[df_subset.index, 'SMA25'] = df_subset['Close'].rolling(window=25, min_periods=0).mean()
+            df.loc[df_subset.index, 'SMA50'] = df_subset['Close'].rolling(window=50, min_periods=0).mean()
+            df.loc[df_subset.index, 'SMA75'] = df_subset['Close'].rolling(window=75, min_periods=0).mean()
 
             # FTD(フォロースルーデイ)
             # df['RecentVolume'] = df['Volume'].rolling(window=10, min_periods=0).mean().shift(1).fillna(0)
             # df['RecentVolume'] = df['Volume'].rolling(window=5, min_periods=0).mean().shift(1).fillna(0)
             df_subset['RecentVolume'] = df_subset['Volume'].shift(1).fillna(0)
-            df['RecentVolume'] = df_subset['RecentVolume']
+            df.loc[df_subset.index, 'RecentVolume'] = df_subset['RecentVolume']
             df_subset['VolumeMA'] = df_subset['Volume'].rolling(window=50, min_periods=0).mean().fillna(0)
-            df['VolumeMA'] = df_subset['VolumeMA']
+            df.loc[df_subset.index, 'VolumeMA'] = df_subset['VolumeMA']
             # 出来高の条件
             # condition_recent = df['Volume'] > df['RecentVolume']
             # condition_recent = df['Volume'] >= df['RecentVolume'] * 1.05
@@ -149,10 +155,10 @@ class chart:
             # df['FTD'] = np.where(condition_recent & condition_increase & condition_rebound, True, False)
             # df['FTD'] = np.where(condition_increase & condition_rebound & condition_vma, True, False)
             df_subset['FTD'] = np.where((condition_recent | condition_vma) & condition_increase & condition_rebound, True, False)
-            df['FTD'] = df_subset['FTD']
+            df.loc[df_subset.index, 'FTD'] = df_subset['FTD']
             # FTDの目印の出力位置
             df_subset['FTD_POS'] = np.where(df_subset['FTD'], df_subset['Low'] * 0.995, np.nan)
-            df['FTD_POS'] = df_subset['FTD_POS']
+            df.loc[df_subset.index, 'FTD_POS'] = df_subset['FTD_POS']
 
             # 逆FTD判定
             # 下落幅の条件
@@ -164,9 +170,9 @@ class chart:
             # df['R_FTD'] = np.where(condition_recent & condition_decrease & condition_pullback, True, False)
             # df['R_FTD'] = np.where(condition_decrease & condition_pullback & condition_vma, True, False)
             df_subset['R_FTD'] = np.where((condition_recent | condition_vma) & condition_decrease & condition_pullback, True, False)
-            df['R_FTD'] = df_subset['R_FTD']
+            df.loc[df_subset.index, 'R_FTD'] = df_subset['R_FTD']
             df_subset['R_FTD_POS'] = np.where(df_subset['R_FTD'], df_subset['High'] * 1.005, np.nan)
-            df['R_FTD_POS'] = df_subset['R_FTD_POS']
+            df.loc[df_subset.index, 'R_FTD_POS'] = df_subset['R_FTD_POS']
 
             ####################
             # CSV形式で保存
@@ -200,9 +206,10 @@ class chart:
 
                 # テクニカル指標の描画
                 apd = [
-                    mpf.make_addplot(df[graphStart:graphEnd]['SMA5'], panel=0, color='blue', width=1, alpha=0.7),
-                    mpf.make_addplot(df[graphStart:graphEnd]['SMA25'], panel=0, color='red', width=1, alpha=0.7),
-                    mpf.make_addplot(df[graphStart:graphEnd]['SMA75'], panel=0, color='magenta', width=1, alpha=0.7),
+                    mpf.make_addplot(df[graphStart:graphEnd]['SMA5'], panel=0, color='magenta', width=1, alpha=0.7),
+                    mpf.make_addplot(df[graphStart:graphEnd]['SMA25'], panel=0, color='green', width=1, alpha=0.7),
+                    mpf.make_addplot(df[graphStart:graphEnd]['SMA50'], panel=0, color='blue', width=1, alpha=0.7),
+                    mpf.make_addplot(df[graphStart:graphEnd]['SMA75'], panel=0, color='red', width=1, alpha=0.7),
                 ]
                 if not df[graphStart:graphEnd]['FTD_POS'].dropna().empty:
                     apd.append(mpf.make_addplot(df[graphStart:graphEnd]['FTD_POS'], type='scatter', markersize=120, marker='^', color='blue'))
