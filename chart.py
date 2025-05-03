@@ -197,7 +197,7 @@ class chart:
                 else:
                     save_file_path = OLD_CHART_PATH + file_name
                     if (os.path.exists(CHART_PATH + file_name)):
-                        os.remove(OLD_CHART_PATH + file_name)
+                        os.remove(CHART_PATH + file_name)
 
                 # 表示期間のスタートを指定
                 graphStart = (datetime(current_year + 1, 1, 1) - dateutil.relativedelta.relativedelta(years=diff_year + 1)).strftime('%Y-%m-%d')
