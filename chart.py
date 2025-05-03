@@ -97,16 +97,28 @@ class chart:
                 existing_df = existing_df.iloc[0:-1]
 
             # yfinanceライブラリを用いて指定した条件でデータを取得
-            # df = yf.Ticker(ticker).history(start=start, end=end, interval='1d')  # インデックスがdatetime型になるためバグる
-            yf.pdr_override()
-            df = pdr.get_data_yahoo(ticker, start, end)
+            try:
+                ticker_obj = yf.Ticker(ticker)
+                df = ticker_obj.history(start=start, end=end, interval='1d')
+                if df.empty:
+                    print(f"{ticker_name}のデータが取得できませんでした。スキップします。")
+                    continue
+            except Exception as e:
+                print(f"{ticker_name}のデータ取得中にエラーが発生しました: {e}")
+                continue
 
             # データフレームの開始年を取得
-            df_year = np.datetime64(df.index.values[0], 'Y').astype(int) + 1970
+            df_year = df.index[0].year
             print(str(df_year) + '年以降データを取得できました')
 
             # 既存CSVが存在する場合
             if existing_df is not None:
+                # インデックスのタイムゾーンを統一
+                if existing_df.index.tz is None:  # existing_dfがtz-naiveの場合
+                    existing_df.index = existing_df.index.tz_localize('Asia/Tokyo')  # タイムゾーンをJSTに設定
+                if df.index.tz is not None:  # dfがtz-awareの場合
+                    df.index = df.index.tz_convert('Asia/Tokyo')  # タイムゾーンをJSTに変換
+
                 # 既存CSVのデータフレームと取得したデータフレームを結合
                 df = existing_df.combine_first(df)
                 # 列順が変わってしまうため元の列順へ変更
@@ -185,7 +197,7 @@ class chart:
             # 1年ごとに画像出力する
             current_year = datetime.now().year
             for year in range(current_year, df_year - 1, -1):  # 更新分だけチャート出力
-                print(str(year) + 'のチャートを生成中...')
+                print(str(year) + '年のチャートを生成中...')
                 file_name = str(ticker_name) + '_' + str(year) + '_日足.png'
                 diff_year = current_year - year
 
@@ -250,6 +262,7 @@ class chart:
                     # 保存先
                     savefig=save_file_path
                 )
+                print(str(year) + '年のチャートの生成完了')
 
     ####################
     # FTDの底打ち判定関数
