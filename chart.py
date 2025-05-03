@@ -10,7 +10,6 @@ import dateutil
 
 import numpy as np
 import yfinance as yf
-from pandas_datareader import data as pdr
 import pandas as pd
 import mplfinance as mpf
 import matplotlib.pyplot as plt
