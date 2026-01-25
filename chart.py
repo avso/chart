@@ -6,14 +6,15 @@
 ###################
 import os
 from datetime import datetime, timedelta
-import dateutil
 
-import numpy as np
-import yfinance as yf
-import pandas as pd
-import mplfinance as mpf
-import matplotlib.pyplot as plt
+import dateutil
 import japanize_matplotlib
+import matplotlib.pyplot as plt
+import mplfinance as mpf
+import numpy as np
+import pandas as pd
+import yfinance as yf
+
 japanize_matplotlib.japanize()
 
 
@@ -38,6 +39,8 @@ tickers = {
 CHART_DATA_PATH = 'chart_data/'
 # チャート画像保存フォルダー
 CHART_PATH = 'chart/'
+# フォロースルーデイ(FTD)と判断するまでの日数
+FTD_THRESHOLD = 3
 
 # チャートスタイルの設定値を作る
 yahoo = mpf.make_mpf_style(
@@ -62,7 +65,7 @@ yahoo = mpf.make_mpf_style(
 ####################
 # チャート生成クラス
 ####################
-class chart:
+class Chart:
 
     def __init__(self):
         self.main()
@@ -75,7 +78,7 @@ class chart:
             # 取得期間の開始日付を指定
             start = datetime(start_year, 1, 1).strftime('%Y-%m-%d')
 
-            OLD_CHART_PATH = CHART_PATH + str(ticker_name) + '/'
+            old_chart_path = CHART_PATH + str(ticker_name) + '/'
 
             ####################
             # フォルダ用意
@@ -100,10 +103,10 @@ class chart:
                 ticker_obj = yf.Ticker(ticker)
                 df = ticker_obj.history(start=start, end=end, interval='1d')
                 if df.empty:
-                    print(f"{ticker_name}のデータが取得できませんでした。スキップします。")
+                    print(f'{ticker_name}のデータが取得できませんでした。スキップします。')
                     continue
             except Exception as e:
-                print(f"{ticker_name}のデータ取得中にエラーが発生しました: {e}")
+                print(f'{ticker_name}のデータ取得中にエラーが発生しました: {e}')
                 continue
 
             # データフレームの開始年を取得
@@ -159,7 +162,7 @@ class chart:
             # condition_increase = df['Close'] >= df['Close'].shift(1) * 1.0100
             condition_increase = df_subset['Close'] >= df_subset['Close'].shift(1) * 1.0125
             # 底打ちの条件
-            condition_rebound = np.array([chart.check_rebound(df_subset, i) for i in range(len(df_subset))])
+            condition_rebound = np.array([self.check_rebound(df_subset, i) for i in range(len(df_subset))])
 
             # FTD判定
             # df['FTD'] = np.where(condition_recent & condition_increase & condition_rebound & condition_vma, True, False)
@@ -175,7 +178,7 @@ class chart:
             # 下落幅の条件
             condition_decrease = df_subset['Close'] <= df_subset['Close'].shift(1) * 0.9900
             # 反落の条件
-            condition_pullback = np.array([chart.check_pullback(df_subset, i) for i in range(len(df_subset))])
+            condition_pullback = np.array([self.check_pullback(df_subset, i) for i in range(len(df_subset))])
             # 逆FTD判定
             # df['R_FTD'] = np.where(condition_recent & condition_decrease & condition_pullback & condition_vma, True, False)
             # df['R_FTD'] = np.where(condition_recent & condition_decrease & condition_pullback, True, False)
@@ -203,34 +206,34 @@ class chart:
                 # 今年分はchart直下に出力する。過去分はフォルダにまとめる
                 if diff_year == 0:
                     save_file_path = CHART_PATH + file_name
-                    if (os.path.exists(OLD_CHART_PATH + file_name)):
-                        os.remove(OLD_CHART_PATH + file_name)
+                    if (os.path.exists(old_chart_path + file_name)):
+                        os.remove(old_chart_path + file_name)
                 else:
-                    save_file_path = OLD_CHART_PATH + file_name
+                    save_file_path = old_chart_path + file_name
                     if (os.path.exists(CHART_PATH + file_name)):
                         os.remove(CHART_PATH + file_name)
 
                 # 表示期間のスタートを指定
-                graphStart = (datetime(current_year + 1, 1, 1) - dateutil.relativedelta.relativedelta(years=diff_year + 1)).strftime('%Y-%m-%d')
-                graphEnd = (datetime(current_year + 1, 1, 1) - dateutil.relativedelta.relativedelta(years=diff_year)).strftime('%Y-%m-%d')
-                # graphStart = (datetime.now() - dateutil.relativedelta.relativedelta(months=6)).strftime('%Y-%m-%d')  # 半年前
+                graph_start = (datetime(current_year + 1, 1, 1) - dateutil.relativedelta.relativedelta(years=diff_year + 1)).strftime('%Y-%m-%d')
+                graph_end = (datetime(current_year + 1, 1, 1) - dateutil.relativedelta.relativedelta(years=diff_year)).strftime('%Y-%m-%d')
+                # graph_start = (datetime.now() - dateutil.relativedelta.relativedelta(months=6)).strftime('%Y-%m-%d')  # 半年前
 
                 # テクニカル指標の描画
                 apd = [
-                    mpf.make_addplot(df[graphStart:graphEnd]['SMA5'], panel=0, color='magenta', width=1, alpha=0.7),
-                    mpf.make_addplot(df[graphStart:graphEnd]['SMA25'], panel=0, color='green', width=1, alpha=0.7),
-                    mpf.make_addplot(df[graphStart:graphEnd]['SMA50'], panel=0, color='blue', width=1, alpha=0.7),
-                    mpf.make_addplot(df[graphStart:graphEnd]['SMA75'], panel=0, color='red', width=1, alpha=0.7),
+                    mpf.make_addplot(df[graph_start:graph_end]['SMA5'], panel=0, color='magenta', width=1, alpha=0.7),
+                    mpf.make_addplot(df[graph_start:graph_end]['SMA25'], panel=0, color='green', width=1, alpha=0.7),
+                    mpf.make_addplot(df[graph_start:graph_end]['SMA50'], panel=0, color='blue', width=1, alpha=0.7),
+                    mpf.make_addplot(df[graph_start:graph_end]['SMA75'], panel=0, color='red', width=1, alpha=0.7),
                 ]
-                if not df[graphStart:graphEnd]['FTD_POS'].dropna().empty:
-                    apd.append(mpf.make_addplot(df[graphStart:graphEnd]['FTD_POS'], type='scatter', markersize=120, marker='^', color='blue'))
-                if not df[graphStart:graphEnd]['R_FTD_POS'].dropna().empty:
-                    apd.append(mpf.make_addplot(df[graphStart:graphEnd]['R_FTD_POS'], type='scatter', markersize=120, marker='v', color='magenta'))
+                if not df[graph_start:graph_end]['FTD_POS'].dropna().empty:
+                    apd.append(mpf.make_addplot(df[graph_start:graph_end]['FTD_POS'], type='scatter', markersize=120, marker='^', color='blue'))
+                if not df[graph_start:graph_end]['R_FTD_POS'].dropna().empty:
+                    apd.append(mpf.make_addplot(df[graph_start:graph_end]['R_FTD_POS'], type='scatter', markersize=120, marker='v', color='magenta'))
 
                 # yahooファイナンススタイルのチャートを生成して保存
-                # mpf.plot(df[graphStart:], addplot=apd_day_ave, type='candle', datetime_format='%m/%d', xrotation=360, tight_layout=False, volume=True, figratio=(19, 9), style='yahoo')
+                # mpf.plot(df[graph_start:], addplot=apd_day_ave, type='candle', datetime_format='%m/%d', xrotation=360, tight_layout=False, volume=True, figratio=(19, 9), style='yahoo')
                 mpf.plot(
-                    df[graphStart:graphEnd],  # 使用するデータフレームを第一引数に指定
+                    df[graph_start:graph_end],  # 使用するデータフレームを第一引数に指定
                     type='candle',  # グラフ表示の種類
                     style=yahoo,  # 表示スタイル
 
@@ -278,7 +281,7 @@ class chart:
         lowest_date = days[days['Low'] == days['Low'].min()].index[-1]
         # 行数の差分を取得
         row_difference = df.index.get_loc(current_date) - df.index.get_loc(lowest_date)
-        return row_difference > 3
+        return row_difference > FTD_THRESHOLD
 
     ####################
     # 逆FTDの反落判定関数
@@ -295,8 +298,8 @@ class chart:
         highest_date = days[days['High'] == days['High'].max()].index[-1]
         # 行数の差分を取得
         row_difference = df.index.get_loc(current_date) - df.index.get_loc(highest_date)
-        return row_difference > 3
+        return row_difference > FTD_THRESHOLD
 
 
 # チャート生成実行
-chart()
+Chart()

@@ -1,0 +1,46 @@
+[tool.ruff]
+target-version = "py312"  # 対象とするPythonのバージョン
+
+select = [  # 有効にするLintルール
+	"E",    # pycodestyle (Error) - 標準的なPEP 8エラー
+	"W",    # pycodestyle (Warning) - 標準的なPEP 8警告
+	"F",    # Pyflakes - 重要なバグや未使用インポート
+	"I",    # isort - インポートの自動整理（特に重要）
+	"B",    # flake8-bugbear - バグの可能性が高いパターン
+	"UP",   # pyupgrade - モダンなPython構文への推奨
+	"C4",   # flake8-comprehensions - 不必要な内包表記の最適化
+	"PL",   # Pylint (一部) - 幅広い品質チェック
+	"A",    # flake8-builtins - 組み込み関数の上書き防止
+	"Q",    # flake8-quotes - クォーテーションの統一
+	"N",    # flake8-naming - 命名規則のチェック
+]
+
+ignore = [      # 無視するルールの指定
+	"E501",     # 行の長さのチェックは、BlackやRuff Formatterに任せる
+	"PLR0911",  # 関数内のreturn数の上限を無視
+	"PLR0912",  # 関数内のブランチ（分岐制御）数の上限を無視
+	"PLR0915",  # 関数内のステートメントの上限を無視
+	"PLR5501",  # コード冗長性のチェックを無視。可読性を優先したい事もあるため
+]
+
+
+[tool.ruff.lint.pep8-naming]
+# sklearnではマトリックス(X)を大文字、ベクトル(y)を小文字で表記する慣習があるため許可
+extend-ignore-names = ["X*"]
+
+
+[tool.ruff.isort]
+# プロジェクト内の自作ライブラリのトップレベルパッケージ名を指定
+known-first-party = []  # 複数ある場合はカンマ区切りで指定: ["MyProject", "MyUtils"]
+
+
+[tool.ruff.lint.per-file-ignores]
+# キーは Glob パターン（ワイルドカード）でファイルパスごとに無視するルールを指定
+"**/model/**" = ["N801"]   # クラス名にスネークケースを使用するため無視
+"**/public/**" = ["N801"]  # クラス名にスネークケースを使用するため無視
+
+
+[tool.ruff.flake8-quotes]
+# クォーテーションスタイルの設定
+inline-quotes = "single"     # "single" または "double" を指定
+multiline-quotes = "single"  # "single" または "double" を指定
